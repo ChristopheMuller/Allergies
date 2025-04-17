@@ -2,7 +2,9 @@
 title: "CA chip 1"
 author: "Chris, Charif, Charlotte, Julie"
 date: "2025-04-16"
-output: html_document
+output:
+  html_document:
+    output_file: index.html
 ---
 
 
