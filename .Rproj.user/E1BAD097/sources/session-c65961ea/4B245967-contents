@@ -1,0 +1,239 @@
+---
+title: "Retraite"
+output: html_document
+date: "2024-11-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Importing the first chip
+
+
+
+```{r cars}
+setwd("~/Documents/HopitauxMontpellier/JulienGoret/RetraiteEquipe")
+library(readxl)
+ACC_2023_Chip1<- read_excel("ACC 2023 Dataset (1).xlsx", 
+  sheet = "ISAC 112i ", na = "9")
+
+```
+
+## Preprocessing
+
+
+```{r pressure, echo=FALSE}
+# 1. Age: Remplacer valeurs négatives par NA
+ACC_2023_Chip1$Age[which(ACC_2023_Chip1$Age<0)]=NA
+
+# 2. Mois du prélèvement: Remplacer valeurs en dehors de 1-12 ou "non-renseignés" par NA
+ACC_2023_Chip1$`Mois du prélèvement` <- ifelse(
+  ACC_2023_Chip1$`Mois du prélèvement` %in% 1:12, 
+  ACC_2023_Chip1$`Mois du prélèvement`, 
+  NA
+)
+
+# 3. Type d'habitat, Atopie familiale, ATCD ou actuel Dermatite Atopique: Remplacer 3 par NA
+cols_to_clean <- c("Type d'habitat", 
+                   "Atopie familliale (parents et fratrie)", 
+                   "ATCD ou actuel Dermatite Atopique")
+ACC_2023_Chip1[cols_to_clean] <- lapply(ACC_2023_Chip1[cols_to_clean], function(x) ifelse(x == 3, NA, x))
+
+# 4. Traitement actuel DA: Transformer 1.2 en 1
+ACC_2023_Chip1$`Traitement actuel DA` <- ifelse(
+  ACC_2023_Chip1$`Traitement actuel DA` == "1, 2" , 1, ACC_2023_Chip1$`Traitement actuel DA`
+)
+ACC_2023_Chip1$`Traitement actuel DA` <-as.factor(ACC_2023_Chip1$`Traitement actuel DA`)
+
+# 5. Conjonctivite: Remplacer 2 et 3 par NA
+ACC_2023_Chip1$Conjonctivite <- ifelse(
+  ACC_2023_Chip1$Conjonctivite %in% c(2, 3), 
+  NA, ACC_2023_Chip1$Conjonctivite
+)
+
+# 6. Syndrome oral: Remplacer 3 par NA
+ACC_2023_Chip1$`Syndrome oral` <- ifelse(
+  ACC_2023_Chip1$`Syndrome oral` == 3, 
+  NA, ACC_2023_Chip1$`Syndrome oral`
+)
+
+# 7. ATCD de pathologie mastocytaire: Remplacer "2-3" par NA
+ACC_2023_Chip1$`ATCD de pathologie mastocytaire` <- ifelse(
+  ACC_2023_Chip1$`ATCD de pathologie mastocytaire` == "2-3", 
+  NA, ACC_2023_Chip1$`ATCD de pathologie mastocytaire`
+)
+
+# 8. COFACTEURS généraux: Créer une colonne par cofacteur (0-9)
+
+cofacteurs_uniques <- unique(unlist(strsplit(as.character(ACC_2023_Chip1$`COFACTEURS généraux`), ",")))
+cofacteurs_uniques <- gsub("\\s+", "", cofacteurs_uniques) # Supprimer les espaces
+
+# Supprimer les NA des cofacteurs uniques
+cofacteurs_uniques <- cofacteurs_uniques[!is.na(cofacteurs_uniques)]
+
+# Créer une colonne pour chaque cofacteur
+for (cofacteur in cofacteurs_uniques) {
+  # Vérifie si chaque cofacteur est présent dans la chaîne et crée une colonne
+  ACC_2023_Chip1[[paste0("Cofacteur_", cofacteur)]] <- ifelse(
+    grepl(paste0("\\b", cofacteur, "\\b"), ACC_2023_Chip1$`COFACTEURS généraux`), 
+    1, 0
+  )
+}
+
+# ACC_2023_Chip1$`COFACTEURS généraux` <- NULL
+
+# 9. Age d'apparition AA: Transformer 2, 3 en 2 ou NA
+ACC_2023_Chip1$`Age d'apparition AA` <- ifelse(
+  ACC_2023_Chip1$`Age d'apparition AA` == "2, 3", 
+  2, ACC_2023_Chip1$`Age d'apparition AA`
+)
+ACC_2023_Chip1$`Age d'apparition AA`=as.factor(ACC_2023_Chip1$`Age d'apparition AA`)
+
+# 10. ATCD d’anaphylaxie alimentaire (AA): Créer des colonnes par catégorie
+# Identifiez tous les entiers uniques présents dans la colonne
+anaphylaxie_uniques <- unique(unlist(strsplit(as.character(ACC_2023_Chip1$`ATCD d'anaphylaxie alimentaire (AA)`), ",")))
+anaphylaxie_uniques <- gsub("\\s+", "", anaphylaxie_uniques) # Nettoyer les espaces inutiles
+
+# Filtrer pour ne garder que les entiers valides (1 à 9 par exemple)
+anaphylaxie_uniques <- anaphylaxie_uniques[grepl("^[0-9]+$", anaphylaxie_uniques)]
+
+# Créer une colonne pour chaque entier unique
+for (val in anaphylaxie_uniques) {
+  # Vérifie si chaque valeur est présente dans la chaîne et crée une colonne
+  ACC_2023_Chip1[[paste0("Anaphylaxie_", val)]] <- ifelse(
+    grepl(paste0("\\b", val, "\\b"), ACC_2023_Chip1$`ATCD d'anaphylaxie alimentaire (AA)`), 
+    1, 0
+  )
+}
+
+# Optionnel : Supprime la colonne originale si elle n'est plus nécessaire
+# ACC_2023_Chip1$`ATCD d'anaphylaxie alimentaire (AA)` <- NULL
+
+# 11. Polyallergie alimentaire: Remplacer 3 et 2 par NA
+ACC_2023_Chip1$`Polyallergie alimentaire` <- ifelse(
+  ACC_2023_Chip1$`Polyallergie alimentaire` %in% c(2, 3), 
+  NA, ACC_2023_Chip1$`Polyallergie alimentaire`
+)
+
+# 12. Clinique par aliment: Créer des colonnes par aliment
+# Créer une colonne pour les chiffres de sévérité
+ACC_2023_Chip1$Clinique_severite <- as.numeric(gsub("\\D.*", "", ACC_2023_Chip1$`Clinique par Aliment`))
+
+aliments_cibles <- c("arachide", "oeuf", "noisette", "noix", "cajou", 
+                     "pistache", "amande", "fruits à coque", "soja", 
+                     "crevette", "poisson", "blé", "sésame", "sarrasin", "lait")
+
+# Création des colonnes pour les aliments cibles
+for (aliment in aliments_cibles) {
+  ACC_2023_Chip1[[paste0("Clinique_", aliment)]] <- ifelse(
+    grepl(paste0("\\b", aliment, "\\b"), tolower(ACC_2023_Chip1$`Clinique par Aliment`)), 
+    1, 0
+  )
+}
+
+# Détecter les "autres" aliments
+ACC_2023_Chip1$Clinique_autres <- ifelse(
+  rowSums(ACC_2023_Chip1[paste0("Clinique_", aliments_cibles)]) == 0 & 
+    !is.na(ACC_2023_Chip1$`Clinique par Aliment`), 
+  1, 0
+)
+
+# Optionnel : Supprimer la colonne originale si elle n'est plus nécessaire
+# ACC_2023_Chip1$`Clinique par Aliment` <- NULL
+
+
+# 13. TPO: # Extraire uniquement la sévérité (le chiffre avant les aliments)
+ACC_2023_Chip1$TPO_severite <- as.numeric(gsub("\\D.*", "", ACC_2023_Chip1$TPO))
+
+# Remplacer les sévérités à 3 par NA
+ACC_2023_Chip1$TPO_severite <- ifelse(ACC_2023_Chip1$TPO_severite == 3, NA, ACC_2023_Chip1$TPO_severite)
+
+# 14. Viande de mammifère: Remplacer valeurs differentes de 1,2,3,4 par NA
+ACC_2023_Chip1$`Viande de mammifère` <- ifelse(
+  ACC_2023_Chip1$`Viande de mammifère` %in% c(0, 1, 2, 3, 4),
+  ACC_2023_Chip1$`Viande de mammifère`,
+  NA
+)
+ACC_2023_Chip1$`Viande de mammifère` <-as.factor(ACC_2023_Chip1$`Viande de mammifère`)
+
+# 15. Departement de residence
+
+# Remplacer les valeurs non conformes (999 ou non entiers) par NA
+ACC_2023_Chip1$`Département de résidence` <- ifelse(
+  ACC_2023_Chip1$`Département de résidence` == 999 | 
+    !grepl("^\\d+$", ACC_2023_Chip1$`Département de résidence`), 
+  NA, 
+  ACC_2023_Chip1$`Département de résidence`
+)
+ACC_2023_Chip1$`Département de résidence` <-as.factor(ACC_2023_Chip1$`Département de résidence`)
+
+ACC_2023_Chip1$`Région de France` <-as.factor(ACC_2023_Chip1$`Région de France`)
+
+# 16. IGE
+colonnes_a_corriger <- c("Act d 1", "Act d 2", "Act d 5", "Act d 8", "Aln g 1", "Alt a 1", 
+                         "Alt a 6", "Amb a 1", "Ana o 2", "Ani s 1", "Ani s 3", "Api g 1", 
+                         "Api m 1", "Api m 4", "Ara h 1", "Ara h 2", "Ara h 3", "Ara h 6", 
+                         "Ara h 8", "Ara h 9", "Art v 1", "Art v 3", "Asp f 1", "Asp f 3", 
+                         "Asp f 6", "Ber e 1", "Bet v 1", "Bet v 2", "Bet v 4", "Bla g 1", 
+                         "Bla g 2", "Bla g 5", "Bla g 7", "Blo t 5", "Bos d 4", "Bos d 5", 
+                         "Bos d 6", "Bos d 8", "Bos d Lactoferrin", "Can f 1", "Can f 2", 
+                         "Can f 3", "Can f 5", "Che a 1", "Cla h 8", "Cor a 1.0101", 
+                         "Cor a 1.0401", "Cor a 8", "Cor a 9", "Cry j 1", "Cup a 1", 
+                         "Cyn d 1", "Der f 1", "Der f 2", "Der p 1", "Der p 10", "Der p 2", 
+                         "Equ c 1", "Equ c 3", "Fag e 2", "Fel d 1", "Fel d 2", "Fel d 4", 
+                         "Gad c 1", "Gal d 1", "Gal d 2", "Gal d 3", "Gal d 5", "Gly m 4", 
+                         "Gly m 5", "Gly m 6", "Hev b 1", "Hev b 3", "Hev b 5", "Hev b 6.01", 
+                         "Hev b 8", "Jug r 1", "Jug r 2", "Jug r 3", "Lep d 2", "Mal d 1", 
+                         "Mer a 1", "Mus m 1", "MUXF3", "Ole e 1", "Ole e 7", "Ole e 9", 
+                         "Par j 2", "Pen m 1", "Pen m 2", "Pen m 4", "Phl p 1", "Phl p 11", 
+                         "Phl p 12", "Phl p 2", "Phl p 4", "Phl p 5", "Phl p 6", "Phl p 7", 
+                         "Pla a 1", "Pla a 2", "Pla a 3", "Pla l 1", "Pol d 5", "Pru p 1", 
+                         "Pru p 3", "Sal k 1", "Ses i 1", "Tri a 14", "Tri a 19.0101", 
+                         "Tri a aA_TI", "Ves v 5")
+
+
+
+# Conversion des colonnes en numérique
+ACC_2023_Chip1[colonnes_a_corriger] <- lapply(ACC_2023_Chip1[colonnes_a_corriger], function(col) {
+  # Vérifier si la colonne est un facteur ou un caractère avant conversion
+  if (is.factor(col) || is.character(col)) {
+    col <- as.numeric(gsub(",", ".", as.character(col))) # Remplacement des virgules par des points et conversion
+  } else {
+    col <- as.numeric(col) # Conversion en numérique
+  }
+  return(col)
+})
+
+# Ig2 à la fin
+colonnes_a_deplacer <- c("Act d 1", "Act d 2", "Act d 5", "Act d 8", "Aln g 1", "Alt a 1", 
+                         "Alt a 6", "Amb a 1", "Ana o 2", "Ani s 1", "Ani s 3", "Api g 1", 
+                         "Api m 1", "Api m 4", "Ara h 1", "Ara h 2", "Ara h 3", "Ara h 6", 
+                         "Ara h 8", "Ara h 9", "Art v 1", "Art v 3", "Asp f 1", "Asp f 3", 
+                         "Asp f 6", "Ber e 1", "Bet v 1", "Bet v 2", "Bet v 4", "Bla g 1", 
+                         "Bla g 2", "Bla g 5", "Bla g 7", "Blo t 5", "Bos d 4", "Bos d 5", 
+                         "Bos d 6", "Bos d 8", "Bos d Lactoferrin", "Can f 1", "Can f 2", 
+                         "Can f 3", "Can f 5", "Che a 1", "Cla h 8", "Cor a 1.0101", 
+                         "Cor a 1.0401", "Cor a 8", "Cor a 9", "Cry j 1", "Cup a 1", 
+                         "Cyn d 1", "Der f 1", "Der f 2", "Der p 1", "Der p 10", "Der p 2", 
+                         "Equ c 1", "Equ c 3", "Fag e 2", "Fel d 1", "Fel d 2", "Fel d 4", 
+                         "Gad c 1", "Gal d 1", "Gal d 2", "Gal d 3", "Gal d 5", "Gly m 4", 
+                         "Gly m 5", "Gly m 6", "Hev b 1", "Hev b 3", "Hev b 5", "Hev b 6.01", 
+                         "Hev b 8", "Jug r 1", "Jug r 2", "Jug r 3", "Lep d 2", "Mal d 1", 
+                         "Mer a 1", "Mus m 1", "MUXF3", "Ole e 1", "Ole e 7", "Ole e 9", 
+                         "Par j 2", "Pen m 1", "Pen m 2", "Pen m 4", "Phl p 1", "Phl p 11", 
+                         "Phl p 12", "Phl p 2", "Phl p 4", "Phl p 5", "Phl p 6", "Phl p 7", 
+                         "Pla a 1", "Pla a 2", "Pla a 3", "Pla l 1", "Pol d 5", "Pru p 1", 
+                         "Pru p 3", "Sal k 1", "Ses i 1", "Tri a 14", "Tri a 19.0101", 
+                         "Tri a aA_TI", "Ves v 5")
+
+# Déplacer les colonnes spécifiques à la fin
+colonnes_initiales <- setdiff(names(ACC_2023_Chip1), colonnes_a_deplacer)
+ACC_2023_Chip1 <- ACC_2023_Chip1[, c(colonnes_initiales, colonnes_a_deplacer)]
+
+
+# Sauvegarder les données transformées
+write.csv(ACC_2023_Chip1, "ACC_2023_Chip1_cleaned.csv", row.names = FALSE)
+```
+
+

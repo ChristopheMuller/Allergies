@@ -1,0 +1,226 @@
+---
+title: "CA chip 1"
+author: "Chris, Charif, Charlotte, Julie"
+date: "2025-04-16"
+output: html_document
+---
+
+
+Decide what chip you want to use.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+
+
+library(dplyr)
+library(readr)
+library(FactoMineR)
+library(forcats)
+
+chip <- read_csv("datasets/ACC_2023_Chip1.csv")
+```
+
+Some IgEs that were equal to 9 were wrongly considered NAs.
+
+```{r false.na, include=FALSE}
+cols_IgEs <- c(70:length(names(chip))) # in case of chip1: use 70
+chip[cols_IgEs][is.na(chip[cols_IgEs])] <- 9  # were wrongly considered NAs
+```
+
+Choose the factors of interest and convert them to factors.
+
+```{r}
+library(dplyr)
+library(forcats)
+
+# --- Define factors and label dictionaries ---
+factors.of.interest <- c(
+  "Région de France",
+  "Type d'habitat",
+  "Sexe",
+  "Conjonctivite",
+  "Syndrome oral",
+  "Cofacteur_0",
+  "Cofacteur_1",
+  "Cofacteur_2",
+  "Cofacteur_3",
+  "Cofacteur_4",
+  "Cofacteur_5",
+  "Cofacteur_6",
+  "Cofacteur_7",
+  "Cofacteur_8",
+  "Cofacteur_9",
+  "Age"
+)
+
+region.france.dict <- c(
+  "1" = "ARA",
+  "2" = "BFC", 
+  "3" = "BRE",
+  "4" = "CVL",
+  "5" = "COR", 
+  "6" = "GES",
+  "7" = "HDF",
+  "8" = "IDF",
+  "9" = "NOR",
+  "10" = "NAQ",
+  "11" = "OCC",
+  "12" = "PDL",
+  "13" = "PAC",
+  "14" = "Outre"
+)
+
+sexe.dict <- c(
+  "0" = "Female",
+  "1" = "Male"
+)
+
+type.habitat.dict <- c(
+  "0" = "Rural",
+  "1" = "Urban"
+)
+
+# --- Define automatic age breaks and labels ---
+age_breaks <- c(-1, 5, 10, 15, 20, 30, 40, 60, 100)
+age_labels <- paste(
+  age_breaks[-length(age_breaks)] + 1,
+  age_breaks[-1],
+  sep = "-"
+)
+
+chip.filtered <- chip %>%
+  mutate(
+    `Région de France` = factor(`Région de France`, levels = names(region.france.dict), labels = region.france.dict),
+    Sexe = factor(Sexe, levels = names(sexe.dict), labels = sexe.dict),
+    `Type d'habitat` = factor(`Type d'habitat`, levels = names(type.habitat.dict), labels = type.habitat.dict),
+    Age = cut(
+      as.numeric(as.character(Age)),
+      breaks = age_breaks,
+      labels = age_labels,
+      right = TRUE,
+      include.lowest = TRUE
+    )
+  ) %>%
+  mutate(across(all_of(factors.of.interest), as.factor)) %>%
+  select(all_of(factors.of.interest), all_of(cols_IgEs))
+
+
+```
+
+
+There is no NAs in the IgEs, but some/many in factors. We can impute them with mice-cart.
+
+```{r impute.nas, include=FALSE}
+
+# colSums(is.na(chip.filtered))
+imp <- mice::mice(chip.filtered, m=1, method="cart")
+chip.imputed <- mice::complete(imp, 1)
+
+```
+
+After preparing our chip, we perform a Correspondence Analysis on our dataset, with IgE variables as column variables of our contingency table and individual variables in the rows.
+
+```{r CA, include=TRUE}
+
+quali.sup.cols <- match(factors.of.interest, colnames(chip.imputed))
+res.ca <- FactoMineR::CA(chip.imputed, quali.sup = quali.sup.cols, graph=FALSE)
+
+plot(res.ca, invisible = c("quali.sup", "row"), cex = 0.5)
+```
+
+### Ani s 1
+
+The allergen Ani s 1 shows a very large value in the first CA component, while other column variables have close to 0 value.
+The same behaviour can be seen in the contributions of the column variable in the first dimension: "Ani s 1" contribution to first dimension is around 99.8, much larger than the other variables contributions, which are close to 0.
+
+```{r}
+res.ca$col$contrib[, 1]
+```
+
+This means that "Ani s 1" alone contributes in explaining a large percentage of the variance, and its contribution is due to a specific subset of samples, which have high value in "Ani s 1" but close to 0 value in the other IgEs.
+
+By looking at the data, we notice that observation 85 has value 101.48 in "Ani s 1" and close or equal to 0 values in the other IgE variables. If we remove it and recompute the CA, we have
+
+```{r}
+chip.imputed.no85 <- chip.imputed[-85,]
+res.ca.no85 <- FactoMineR::CA(chip.imputed.no85, quali.sup = quali.sup.cols, graph=FALSE)
+plot(res.ca.no85, invisible = c("quali.sup", "row"), cex = 0.5, selectCol = "contrib 30") # if option selectCol = "contrib 30" is removed, it is possible to find "Ani s 1" in the bottom left
+```
+
+Note: We notice that if we consider the second and third dimensions of the CA with the original dataset, we find the same plot:
+
+```{r}
+plot(res.ca, axes=c(2,3), invisible = c("quali.sup", "row"), cex = 0.5, selectCol = "contrib 30")
+```
+Therefore observation 85 was creating some signal that made "Ani s 1" be suggested as a key factor separating our samples.
+This note confirms our previous findings and supports our choice of removing observation 85.
+
+The projection of the first two dimensions reveals the presence of two distinct allergen clusters. A (more evident) cluster of "Ara h 1", "Ara h 2", "Ara h 3", "Ara h 6", "Gly m 6" and "Api m 4" (the last one has low contribution on the variance explained by two dimensions). This suggests that individuals tend to have similar patterns in the occurrence of these IgEs. A secondary cluster is formed by "Bos d 4", "Bos d 5", "Bos d 6" and "Bos d 8".
+
+We then plot dimensions 3 and 4: 
+
+```{r}
+plot(res.ca.no85, axes = c(3,4), invisible = c("quali.sup", "row"), cex = 0.5, selectCol = "contrib 20") # here if we remove selectCol = "contrib 30" we find that the point on the top (with Dim 4 around 4.7) is "Ani s 1" 
+```
+
+Third and fourth dimensions show more clearly the cluster formed by "Bos d 4", "Bos d 5", "Bos d 6" and "Bos d 8".
+
+
+```{r}
+library(ggplot2)
+library(stringr)
+
+coords.factors <- res.ca.no85$quali.sup$coord[,1:2]
+coords.cols <- res.ca.no85$col$coord[,1:2]
+
+coords.cols.df <- data.frame(
+  Dim1 = coords.cols[, 1],
+  Dim2 = coords.cols[, 2],
+  Label = rownames(coords.cols) # Keep labels handy if you want to add them later
+)
+
+axis_label_dim1 <- paste0("Dimension 1 (", round(res.ca$eig[1,2], 1), "%)")
+axis_label_dim2 <- paste0("Dimension 2 (", round(res.ca$eig[2,2], 1), "%)")
+
+x_limits <- range(c(coords.factors[,1], coords.cols[,1])) * 1.1 # Add some padding
+y_limits <- range(c(coords.factors[,2], coords.cols[,2])) * 1.1 # Add some padding
+
+for (fac in factors.of.interest){
+
+  matching_rows <- coords.factors[startsWith(rownames(coords.factors), paste0(fac, ".")), ]
+
+  levels <- str_remove(rownames(matching_rows), paste0(fac, "\\."))
+
+  temp <- data.frame(
+    Dim1 = matching_rows[, 1],
+    Dim2 = matching_rows[, 2],
+    Level = levels
+  )
+
+  p <- ggplot(temp, aes(x = Dim1, y = Dim2, label = Level)) + # Base plot using factor levels
+
+    geom_point(data = coords.cols.df, aes(x = Dim1, y = Dim2), # Specify data and aesthetics
+               color = "red", size = 1.5, alpha = 0.4, inherit.aes = FALSE) + 
+    geom_point(color = "steelblue", size = 3) + 
+    geom_text(vjust = -0.7, hjust = 0.5, size = 3.5) +
+    labs(title = paste("CA Plot:", fac),
+         x = axis_label_dim1, y = axis_label_dim2) +
+    theme_minimal(base_size = 12) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    xlim(x_limits) +
+    ylim(y_limits) +
+    coord_fixed() +
+    geom_hline(yintercept = 0, linetype="dashed", color = "grey70") +
+    geom_vline(xintercept = 0, linetype="dashed", color = "grey70")
+
+  print(p)
+}
+
+
+```
+
+When projecting the dimensions onto the regional space, we observe that the region Bourgogne-Franche-Comté (BFC) presents a high prevalence of individuals with non-zero values of IgEs "Ara h 1", "Ara h 2", "Ara h 3", "Ara h 6", "Gly m 6" and "Api m 4".
+On the other hand, IgEs "Bos d 4", "Bos d 5", "Bos d 6" and "Bos d 8" do not exhibit any distinct regional predominance.
+
+
+

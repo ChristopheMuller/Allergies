@@ -1,0 +1,61 @@
+
+
+library(dplyr)
+library(readr)
+library(FactoMineR)
+
+
+# chip <- read_csv("datasets/ACC_2023_Chip1.csv")
+
+head(chip)
+names(chip)
+
+cols_IgEs <- c(70:length(names(chip)))
+chip[cols_IgEs][is.na(chip[cols_IgEs])] <- 9  # were wrongly considered NAs
+
+chip_filtered <- chip %>% 
+  mutate("Mois du prélèvement" = as.factor(`Mois du prélèvement`)) %>% 
+  mutate("ARIA (rhinite)" = as.factor(`ARIA (rhinite)`)) %>% 
+  mutate("Traitement rhinite" = as.factor(`Traitement rhinite`)) %>% 
+  mutate("GINA (ancien)" = as.factor(`GINA (ancien)`)) %>% 
+  mutate("Traitement (New) GINA" = as.factor(`Traitement (New) GINA`)) %>%  
+  mutate("Région de France" = as.factor(`Région de France`)) %>% 
+  mutate("Type d'habitat" = as.factor(`Type d'habitat`))
+
+chip_filtered <- chip_filtered %>% 
+  select(-"Code local", -"CODE puce")
+
+sum(is.na(chip_filtered))
+
+mice.model <- mice::mice(chip_filtered, m=1, method="sample") # fill randomly
+chip_filtered <- mice::complete(mice.model, 1)
+
+
+ONLY.IGEs <- chip_filtered[62:length(names(chip_filtered))]
+
+QUALI.SUPS <- chip_filtered %>% 
+  select("Mois du prélèvement", "Région de France", "Type d'habitat", 
+         "ARIA (rhinite)", "Traitement rhinite", "GINA (ancien)", "Traitement (New) GINA")
+
+DATA <- cbind(
+  ONLY.IGEs,
+  QUALI.SUPS
+)
+
+tibble(DATA[,115:125])
+
+ma <- FactoMineR::CA(DATA, quali.sup = names(QUALI.SUPS), graph=FALSE)
+
+plot(ma, invisible = c("quali.sup", "row"), cex = 0.5)
+
+plot(ma, invisible = c("quali.sup", "row"), cex = 0.5, selectCol = "contrib 20", autoLab = "yes")
+
+plot(ma, invisible = c("col", "row"), cex = 0.5, selectCol = "contrib 10", autoLab = "yes")
+
+
+
+data.coords <- ma$quali.sup$coord
+
+
+
+
